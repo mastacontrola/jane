@@ -11,13 +11,17 @@ checkOS
 stopJaneEngine
 installRemiAndEpel
 updateServer
-checkOrInstallPackage "mariadb" "0"
-checkOrInstallPackage "mariadb-server" "0"
-checkOrInstallPackage "php" "0"
+checkOrInstallPackage "mysql" "0"
+checkOrInstallPackage "mysql-server" "0"
+if [[ $status != 0 ]] ; then
+    checkOrInstallPackage "mariadb" "0" "1"
+    checkOrInstallPackage "mariadb-server" "0" "1"
+fi
 checkOrInstallPackage "httpd" "0"
+checkOrInstallPackage "php" "0"
 checkOrInstallPackage "php-mysqlnd" "0"
+checkOrInstallPackage "php-mcrypt" "0"
 #checkOrInstallPackage "php-mhash" "0"
-#checkOrInstallPackage "php-mcrypt" "0"
 checkOrInstallPackage "samba" "0"
 checkOrInstallPackage "samba-client" "0"
 checkOrInstallPackage "openssl" "0"

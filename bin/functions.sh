@@ -77,88 +77,81 @@ updateServer() {
     fi
 }
 checkOS() {
+    local OS=$(uname -s)
+    if [[ $OS =~ ^[^Ll][^Ii][^Nn][^Uu][^Xx] ]] ; then
+        echo "We do not currently support installation on non-linux operating systems"
+        exit 2 # Fail OS Check
+    fi
     dots "Checking for compatible OS"
-    if [[ -e "/etc/os-release" ]]; then
+    if [[ -e /etc/os-release ]] ; then
         source "/etc/os-release"
-        if [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID" == "fedora" ]]; then
-            echo "$ID"
-        else
-            echo "$ID is incompatible"
-            exit
-        fi
+        ID=$(echo $ID | awk '{print tolower($0)}')
+        case $ID in
+            centos|rhel|fedora)
+                echo "$ID"
+                ;;
+            *)
+                echo "$ID is incompatible"
+                exit 2
+                ;;
+        esac
+    elif [[ -e /etc/redhat-release ]] ; then
+        local ID=$(cat /etc/redhat-release | awk '{print tolower($1)}');
+        echo "$ID"
     else
         echo "Could not determine OS"
-        exit
+        exit 2
     fi
 }
 installRemiAndEpel() {
-    dots "Ensuring Remi and Epel repos are installed"
-
-    local useYum=$(command -v yum)
-    local useDnf=$(command -v dnf)
-
-    if [[ "$ID" == "fedora" ]]; then
-        if [[ -e "$useDnf" ]]; then
-            dnf install http://rpms.remirepo.net/fedora/remi-release-${VERSION_ID}.rpm -y > /dev/null 2>&1
-            dnf config-manager --set-enabled remi-php70 > /dev/null 2>&1
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
-        elif [[ -e "$useYum" ]]; then
-            yum install http://rpms.remirepo.net/fedora/remi-release-${VERSION_ID}.rpm -y > /dev/null 2>&1
-            yum config-manager --set-enabled remi-php70 > /dev/null 2>&1
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
+    installer=$(command -v dnf)
+    if [[ -z $installer ]] ; then
+        installer=$(command -v yum)
+        if [[ -z $installer ]] ; then
+            echo " * Cannot find an appropriate installer"
+            exit 3
         fi
-    elif [[ "$ID" == "centos" ]]; then
-        if [[ -e "$useDnf" ]]; then
-            dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-${VERSION_ID}.noarch.rpm -y > /dev/null 2>&1
-            dnf install http://rpms.remirepo.net/enterprise/remi-release-${VERSION_ID}.rpm -y > /dev/null 2>&1
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
-        elif [[ -e "$useYum" ]]; then
-            yum install https://dl.fedoraproject.org/pub/epel/epel-release-latest-${VERSION_ID}.noarch.rpm -y > /dev/null 2>&1
-            yum install http://rpms.remirepo.net/enterprise/remi-release-${VERSION_ID}.rpm -y > /dev/null 2>&1
-            checkOrInstallPackage "yum-utils" "1"
-            yum-config-manager --enable remi-php70 > /dev/null 2>&1
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
-        fi
-    elif [[ "$ID" == "rhel" ]]; then
-        if [[ -e "$useDnf" ]]; then
-            dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-${VERSION_ID}.noarch.rpm -y > /dev/null 2>&1
-            dnf install http://rpms.remirepo.net/enterprise/remi-release-${VERSION_ID}.rpm -y > /dev/null 2>&1
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
-        elif [[ -e "$useYum" ]]; then
-            yum install https://dl.fedoraproject.org/pub/epel/epel-release-latest-${VERSION_ID}.noarch.rpm -y > /dev/null 2>&1
-            yum install http://rpms.remirepo.net/enterprise/remi-release-${VERSION_ID}.rpm -y > /dev/null 2>&1
-            checkOrInstallPackage "yum-utils" "1"
-            subscription-manager repos --enable=rhel-${VERSION_ID}-server-optional-rpms > /dev/null 2>&1
-            yum-config-manager --enable remi-php70 > /dev/null 2>&1
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
-        fi
+        local yum="1"
+        checkOrInstallPackage "yum-utils" "1"
     fi
+    dots "Ensuring Remi and Epel repos are installed"
+    case $ID in
+        fedora)
+            repo="fedora"
+            ;;
+        rhel)
+            repo="enterprise"
+            [[ $yum -eq 1 ]] && subscription-manager repos --enable=rhel-${VERSION_ID}-server-optional-rpms > /dev/null 2>&1
+            ;;
+        *)
+            repo="enterprise"
+            $installer install https://dl.fedoraproject.org/pub/epel/epel-release-latest-${VERSION_ID}.noarch.rpm -y > /dev/null 2>&1
+            ;;
+    esac
+    $installer install http://rpms.remirepo.net/fedora/remi-release-${VERSION_ID}.rpm -y > /dev/null 2>&1
+    if [[ $yum -eq 1 ]] ;then
+        checkOrInstallPackage "yum-utils" "1"
+        yum-config-manager --enable remi-php70 > /dev/null 2>&1
+    else
+        $installer config-manager --set-enabled remi-php70 > /dev/null 2>&1
+    fi
+    [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
 }
 checkOrInstallPackage() {
     local package="$1"
     local silent="$2"
+    local breakout="$3"
     local packageLocation=""
-    if [[ "$silent" -eq 0 ]]; then
-        dots "Installing package $package"
-    fi
-    local useYum=$(command -v yum)
-    local useDnf=$(command -v dnf)
-    if [[ -e "$useDnf" ]]; then
-        dnf install "$package" -y > /dev/null 2>&1
-        if [[ "$silent" -eq 0 ]]; then
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
+    [[ "$silent" -eq 0 ]] && dots "Installing package $package"
+    $installer install "$package" -y > /dev/null 2>&1
+    status="$?"
+    if [[ $silent -eq 0 ]] ; then
+        if [[ $status -eq 0 ]] ; then
+            echo "Installed"
+        else
+            echo "Failed"
+            [[ -n $breakout ]] && exit 5
         fi
-    elif [[ -e "$useYum" ]]; then
-        yum install "$package" -y > /dev/null 2>&1
-        if [[ "$silent" -eq 0 ]]; then
-            [[ $? -eq 0 ]] && echo "Installed" || echo "Failed"
-        fi
-    else
-        #Unable to determine repo manager.
-        if [[ "$silent" -eq 0 ]]; then
-            echo "Unable to determine repo manager."
-        fi
-        return 1
     fi
 }
 setTimezone() {
